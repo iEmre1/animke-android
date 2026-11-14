@@ -16,13 +16,20 @@ fi
 command -v openssl >/dev/null || { echo "openssl bulunamadı (Git Bash ile çalıştır)."; exit 1; }
 command -v gh >/dev/null || { echo "gh (GitHub CLI) bulunamadı."; exit 1; }
 
-read -rsp "Anahtar şifresi (en az 8 karakter): " ANIMKE_KEY_PASS; echo
-read -rsp "Şifre (tekrar): " ANIMKE_KEY_PASS2; echo
-[ "$ANIMKE_KEY_PASS" = "$ANIMKE_KEY_PASS2" ] || { echo "Şifreler aynı değil."; exit 1; }
-[ "${#ANIMKE_KEY_PASS}" -ge 8 ] || { echo "Şifre en az 8 karakter olmalı."; exit 1; }
-export ANIMKE_KEY_PASS
-
 mkdir -p "$DIR"
+echo "Şifreyi kendin belirlemek istemiyorsan hiçbir şey yazmadan Enter'a bas:"
+echo "güçlü bir şifre üretilip $DIR/sifre.txt dosyasına kaydedilir."
+read -rsp "Anahtar şifresi (en az 8 karakter): " ANIMKE_KEY_PASS; echo
+if [ -z "$ANIMKE_KEY_PASS" ]; then
+  ANIMKE_KEY_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
+  printf '%s\n' "$ANIMKE_KEY_PASS" > "$DIR/sifre.txt"
+  echo "Şifre üretildi ve $DIR/sifre.txt dosyasına kaydedildi."
+else
+  read -rsp "Şifre (tekrar): " ANIMKE_KEY_PASS2; echo
+  [ "$ANIMKE_KEY_PASS" = "$ANIMKE_KEY_PASS2" ] || { echo "Şifreler aynı değil."; exit 1; }
+  [ "${#ANIMKE_KEY_PASS}" -ge 8 ] || { echo "Şifre en az 8 karakter olmalı."; exit 1; }
+fi
+export ANIMKE_KEY_PASS
 # 2048 bit RSA, ~27 yıl geçerli sertifika.
 openssl req -x509 -newkey rsa:2048 -nodes -days 10000 \
   -subj "/CN=Animke/O=Animke/C=TR" \
@@ -35,12 +42,12 @@ rm -f "$DIR/key.pem"
 base64 -w0 "$P12" | gh secret set ANDROID_KEYSTORE_BASE64 -R "$REPO"
 printf %s "$ANIMKE_KEY_PASS" | gh secret set ANDROID_KEYSTORE_PASSWORD -R "$REPO"
 printf %s "animke" | gh secret set ANDROID_KEY_ALIAS -R "$REPO"
-unset ANIMKE_KEY_PASS ANIMKE_KEY_PASS2
+unset ANIMKE_KEY_PASS ANIMKE_KEY_PASS2 || true
 
 echo
 echo "Tamam: anahtar oluşturuldu ve GitHub'a yüklendi."
 echo "Parmak izi (gizli değil, ileride bağlantı doğrulaması için):"
 openssl x509 -in "$DIR/sertifika.pem" -noout -fingerprint -sha256
 echo
-echo "ÖNEMLİ: '$P12' dosyasını ve şifreyi güvenli bir yere yedekle (USB, Drive)."
+echo "ÖNEMLİ: '$DIR' klasörünü (anahtar dosyası ve varsa sifre.txt) güvenli bir yere yedekle (USB, Drive)."
 echo "Kaybolursa kullanıcılar yeni sürümleri kuramaz."
