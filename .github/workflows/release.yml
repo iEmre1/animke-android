@@ -4,7 +4,8 @@ name: Release
 # GitHub Releases sayfasında "Animke.apk" olarak yayınlar. Sitedeki indirme düğmesi
 # releases/latest/download/Animke.apk adresini kullanır.
 #
-#   1) package.json'daki "version"ı artır (ör. 1.0.1)
+#   1) package.json'daki "version"ı artır (ör. 1.0.1), RELEASE_NOTES.md'ye yenilikleri yaz
+#      (ilk 4 madde uygulamadaki "Güncelleme var" penceresinde görünür)
 #   2) git commit -am "1.0.1" && git tag v1.0.1 && git push --follow-tags
 #
 # İmzalama anahtarı yoksa (gizli değişkenler girilmemişse) yalnızca deneme APK'sı
@@ -101,5 +102,5 @@ jobs:
         run: |
           gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 || gh release create "$GITHUB_REF_NAME" \
             --title "Animke Android ${GITHUB_REF_NAME#v}" \
-            --notes "Android uygulaması: **Animke.apk**. Telefonda indirip açın; ilk kurulumda \"bilinmeyen kaynaklara izin ver\" istenebilir."
+            --notes-file RELEASE_NOTES.md
           gh release upload "$GITHUB_REF_NAME" Animke.apk --clobber

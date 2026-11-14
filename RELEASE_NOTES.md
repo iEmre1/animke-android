@@ -1,0 +1,4 @@
+- İndirme düzeltildi: bölümler artık sorunsuz iniyor
+- İndirilenler ekranı yenilendi: animeye göre grup, ilerleme, tekrar dene
+- Uygulama içi güncelleme: yeni sürüm tek dokunuşla kurulur
+- Menüye İndirilenler eklendi
