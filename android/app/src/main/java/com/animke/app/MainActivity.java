@@ -1,7 +1,11 @@
 package com.animke.app;
 
+import android.Manifest;
 import android.app.PictureInPictureParams;
 import android.content.Context;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.Uri;
 import android.content.pm.ActivityInfo;
 import android.content.res.Configuration;
 import android.graphics.Color;
@@ -21,8 +25,11 @@ import android.webkit.WebView;
 import android.widget.FrameLayout;
 
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
+import androidx.core.content.ContextCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -32,6 +39,8 @@ import androidx.webkit.WebViewFeature;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebChromeClient;
+import com.google.firebase.FirebaseApp;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import org.json.JSONObject;
 
@@ -44,7 +53,8 @@ import java.util.Set;
  * - Video tam ekranı gerçekten tam ekran (yatay döner, çubuklar gizlenir, ekran kararmaz).
  * - Geri tuşu: tam ekrandan çık → sayfada geri git → uygulamayı kapat.
  * - Resim içinde resim: video oynarken uygulamadan çıkınca küçük pencerede devam eder.
- * - Site ile köprü ("AnimkeNative"): parlaklık, ses, mobil veri bilgisi, oynatma durumu.
+ * - Yeni bölüm bildirimleri (Firebase kuruluysa); bildirime dokununca ilgili sayfa açılır.
+ * - Site ile köprü ("AnimkeNative"): parlaklık, ses, mobil veri bilgisi, oynatma durumu, bildirim izni.
  *   Yalnızca animke.com'un ana çerçevesi kullanabilir (sayfadaki başka sitelerin çerçeveleri değil).
  */
 public class MainActivity extends BridgeActivity {
@@ -63,10 +73,13 @@ public class MainActivity extends BridgeActivity {
     private JavaScriptReplyProxy siteReply;
     private Boolean lastMetered = null;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private ActivityResultLauncher<String> notificationPermission;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        notificationPermission = registerForActivityResult(
+            new ActivityResultContracts.RequestPermission(), granted -> sendPushState());
         if (bridge == null) return;
 
         webView = bridge.getWebView();
@@ -97,6 +110,85 @@ public class MainActivity extends BridgeActivity {
 
         setupSiteBridge();
         watchNetwork();
+        MessagingService.ensureChannel(this);
+        // Uygulama bildirime dokunularak açıldıysa o sayfaya git.
+        webView.post(() -> openFromIntent(getIntent()));
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        openFromIntent(intent);
+    }
+
+    /** Bildirimdeki adres (yalnızca animke.com) uygulamada açılır. */
+    private void openFromIntent(Intent intent) {
+        if (intent == null || webView == null) return;
+        // Uygulama açıkken gösterilen bildirim EXTRA_URL, kapalıyken Android'in gösterdiği "url" taşır.
+        String url = intent.getStringExtra(MessagingService.EXTRA_URL);
+        if (url == null) url = intent.getStringExtra("url");
+        if (url == null) return;
+        intent.removeExtra(MessagingService.EXTRA_URL);
+        intent.removeExtra("url");
+        Uri uri = Uri.parse(url);
+        String host = uri.getHost();
+        if ("https".equals(uri.getScheme()) && ("animke.com".equals(host) || "www.animke.com".equals(host))) {
+            webView.loadUrl(url);
+        }
+    }
+
+    // --- Bildirimler -------------------------------------------------------------------------
+
+    private boolean firebaseReady() {
+        try {
+            return !FirebaseApp.getApps(this).isEmpty();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private boolean notificationsGranted() {
+        return Build.VERSION.SDK_INT < 33
+            || ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    /** Siteye: bildirimler kullanılabilir mi, izin var mı, cihazın bildirim adresi (token). */
+    private void sendPushState() {
+        if (siteReply == null) return;
+        final boolean available = firebaseReady();
+        final boolean granted = notificationsGranted();
+        if (!available || !granted) {
+            postPush(available, granted, null);
+            return;
+        }
+        FirebaseMessaging.getInstance().getToken().addOnCompleteListener(task ->
+            postPush(true, true, task.isSuccessful() ? task.getResult() : null));
+    }
+
+    private void postPush(boolean available, boolean granted, String token) {
+        runOnUiThread(() -> {
+            if (siteReply == null) return;
+            try {
+                JSONObject s = new JSONObject();
+                s.put("type", "push");
+                s.put("available", available);
+                s.put("granted", granted);
+                if (token != null) s.put("token", token);
+                siteReply.postMessage(s.toString());
+            } catch (Exception ignored) {
+                // sayfa kapanmış olabilir
+            }
+        });
+    }
+
+    private void enablePush() {
+        if (!firebaseReady()) {
+            postPush(false, notificationsGranted(), null);
+        } else if (!notificationsGranted() && Build.VERSION.SDK_INT >= 33) {
+            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);
+        } else {
+            sendPushState();
+        }
     }
 
     // --- Site köprüsü ---------------------------------------------------------------------
@@ -130,6 +222,12 @@ public class MainActivity extends BridgeActivity {
                     videoHeight = h;
                 }
                 updatePipParams();
+                break;
+            case "push-status":
+                sendPushState();
+                break;
+            case "push-enable":
+                runOnUiThread(this::enablePush);
                 break;
             case "brightness":
                 setBrightness((float) msg.optDouble("value", -1));

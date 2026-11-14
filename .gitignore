@@ -4,3 +4,6 @@ node_modules/
 *.keystore
 *.jks
 anahtar/
+
+# Firebase yapılandırması GitHub gizli değişkeninden gelir.
+android/app/google-services.json

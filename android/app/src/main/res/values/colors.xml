@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="animkeBackground">#121212</color>
+    <color name="animkeBrand">#1E90E0</color>
 </resources>
