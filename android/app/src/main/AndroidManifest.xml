@@ -78,4 +78,6 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Android 13+: yeni bölüm bildirimleri için (kullanıcı açarsa sorulur). -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Uygulama içi güncelleme: yeni sürümün kurulum ekranını açabilmek için (kullanıcı onaylar). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 </manifest>

@@ -1,7 +1,11 @@
 package com.animke.app;
 
 import android.Manifest;
+import android.app.DownloadManager;
 import android.app.PictureInPictureParams;
+import android.content.BroadcastReceiver;
+import android.content.IntentFilter;
+import android.os.Environment;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -30,6 +34,7 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.annotation.RequiresApi;
 import androidx.core.content.ContextCompat;
+import androidx.core.content.FileProvider;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
@@ -45,6 +50,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.File;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -75,6 +81,12 @@ public class MainActivity extends BridgeActivity {
     private Boolean lastMetered = null;
     private ConnectivityManager.NetworkCallback networkCallback;
     private ActivityResultLauncher<String> notificationPermission;
+
+    /** Uygulama içi güncelleme: inen APK ve izin bekleyen kurulum. */
+    private long updateDownloadId = -1;
+    private File updateFile;
+    private File pendingInstall;
+    private BroadcastReceiver downloadReceiver;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -195,6 +207,98 @@ public class MainActivity extends BridgeActivity {
         });
     }
 
+    // --- Uygulama içi güncelleme -------------------------------------------------------------
+
+    private void postUpdateState(String state) {
+        if (siteReply == null) return;
+        try {
+            JSONObject r = new JSONObject();
+            r.put("type", "update-state");
+            r.put("state", state);
+            siteReply.postMessage(r.toString());
+        } catch (Exception ignored) {
+            // sayfa kapanmış olabilir
+        }
+    }
+
+    /** Yeni sürümün APK'sını indirir; bitince Android'in kurulum ekranını açar (kullanıcı onaylar). */
+    private void startUpdate(String url, String version) {
+        // Yalnızca kendi deposundaki yayınlar.
+        if (url == null || !url.startsWith("https://github.com/iEmre1/animke-android/releases/")) return;
+        if (updateDownloadId >= 0) {
+            postUpdateState("downloading");
+            return;
+        }
+        DownloadManager dm = (DownloadManager) getSystemService(Context.DOWNLOAD_SERVICE);
+        if (dm == null) {
+            postUpdateState("failed");
+            return;
+        }
+        String name = "Animke-" + version.replaceAll("[^0-9.]", "") + ".apk";
+        updateFile = new File(getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS), name);
+        //noinspection ResultOfMethodCallIgnored
+        updateFile.delete();
+        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(url))
+            .setTitle("Animke güncellemesi")
+            .setDescription("Sürüm " + version)
+            .setMimeType("application/vnd.android.package-archive")
+            .setDestinationInExternalFilesDir(this, Environment.DIRECTORY_DOWNLOADS, name)
+            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE);
+        updateDownloadId = dm.enqueue(req);
+        ensureDownloadReceiver();
+        postUpdateState("downloading");
+    }
+
+    private void ensureDownloadReceiver() {
+        if (downloadReceiver != null) return;
+        downloadReceiver = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context ctx, Intent intent) {
+                long id = intent.getLongExtra(DownloadManager.EXTRA_DOWNLOAD_ID, -1);
+                if (id < 0 || id != updateDownloadId) return;
+                updateDownloadId = -1;
+                DownloadStore.Status st = DownloadStore.status(MainActivity.this, id);
+                if (st.state != DownloadManager.STATUS_SUCCESSFUL || updateFile == null || !updateFile.exists()) {
+                    postUpdateState("failed");
+                    return;
+                }
+                postUpdateState("installing");
+                installApk(updateFile);
+            }
+        };
+        ContextCompat.registerReceiver(this, downloadReceiver,
+            new IntentFilter(DownloadManager.ACTION_DOWNLOAD_COMPLETE), ContextCompat.RECEIVER_EXPORTED);
+    }
+
+    private void installApk(File apk) {
+        // Android 8+: "bu kaynaktan uygulama yükle" izni yoksa ayar sayfası açılır, dönünce kurulur.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !getPackageManager().canRequestPackageInstalls()) {
+            pendingInstall = apk;
+            startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + getPackageName())));
+            return;
+        }
+        pendingInstall = null;
+        Uri uri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", apk);
+        Intent install = new Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, "application/vnd.android.package-archive")
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(install);
+        } catch (Exception e) {
+            postUpdateState("failed");
+        }
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        // İzin ayarından dönüldüyse bekleyen kurulumu sürdür.
+        if (pendingInstall != null && pendingInstall.exists()
+            && (Build.VERSION.SDK_INT < Build.VERSION_CODES.O || getPackageManager().canRequestPackageInstalls())) {
+            installApk(pendingInstall);
+        }
+    }
+
     // --- Bildirimler -------------------------------------------------------------------------
 
     private boolean firebaseReady() {
@@ -290,6 +394,9 @@ public class MainActivity extends BridgeActivity {
             case "open-downloads":
                 runOnUiThread(() -> startActivity(new Intent(this, DownloadsActivity.class)));
                 break;
+            case "update":
+                runOnUiThread(() -> startUpdate(msg.optString("url"), msg.optString("version")));
+                break;
             case "push-status":
                 sendPushState();
                 break;
@@ -318,6 +425,8 @@ public class MainActivity extends BridgeActivity {
             s.put("brightness", getBrightness());
             s.put("volume", getVolume());
             s.put("pip", Build.VERSION.SDK_INT >= Build.VERSION_CODES.O);
+            // Bu sürüm uygulama içi güncellemeyi (APK indir + kur) destekliyor.
+            s.put("canUpdate", true);
             siteReply.postMessage(s.toString());
         } catch (Exception ignored) {
             // sayfa kapanmış olabilir
@@ -444,6 +553,13 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onDestroy() {
+        if (downloadReceiver != null) {
+            try {
+                unregisterReceiver(downloadReceiver);
+            } catch (Exception ignored) {
+                // zaten kaldırılmış
+            }
+        }
         if (networkCallback != null) {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
             try {
