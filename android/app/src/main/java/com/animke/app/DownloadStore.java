@@ -37,12 +37,15 @@ public final class DownloadStore {
         public long size;        // bayt (tahmini)
         public long added;
         public long position;    // kaldığı yer (ms)
+        public String videoUrl;  // tekrar denemek için
+        public String subUrl;
 
         JSONObject toJson() throws Exception {
             JSONObject o = new JSONObject();
             o.put("id", id).put("anime", anime).put("label", label).put("quality", quality)
                 .put("watchUrl", watchUrl).put("videoDm", videoDm).put("subDm", subDm)
-                .put("size", size).put("added", added).put("position", position);
+                .put("size", size).put("added", added).put("position", position)
+                .put("videoUrl", videoUrl).put("subUrl", subUrl);
             return o;
         }
 
@@ -58,6 +61,8 @@ public final class DownloadStore {
             i.size = o.optLong("size");
             i.added = o.optLong("added");
             i.position = o.optLong("position");
+            i.videoUrl = o.optString("videoUrl");
+            i.subUrl = o.optString("subUrl");
             return i;
         }
     }
@@ -127,6 +132,26 @@ public final class DownloadStore {
         return new File(dir(c), safe(id) + ".ass");
     }
 
+    /**
+     * Video sunucusu yalnızca animke.com'dan gelen isteklere izin verir (Cloudflare): indirme
+     * yöneticisi de tarayıcı gibi sitenin adresini ve uygulamanın kimliğini gönderir.
+     */
+    private static DownloadManager.Request withSiteHeaders(Context c, DownloadManager.Request r) {
+        r.addRequestHeader("Referer", "https://animke.com/");
+        r.addRequestHeader("Origin", "https://animke.com");
+        String ua = userAgent(c);
+        if (ua != null) r.addRequestHeader("User-Agent", ua);
+        return r;
+    }
+
+    private static String userAgent(Context c) {
+        try {
+            return android.webkit.WebSettings.getDefaultUserAgent(c) + " AnimkeAndroid";
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static String safe(String id) {
         return id.replaceAll("[^A-Za-z0-9_-]", "_");
     }
@@ -141,7 +166,7 @@ public final class DownloadStore {
         File video = videoFile(c, item.id);
         //noinspection ResultOfMethodCallIgnored
         video.delete();
-        DownloadManager.Request req = new DownloadManager.Request(Uri.parse(videoUrl))
+        DownloadManager.Request req = withSiteHeaders(c, new DownloadManager.Request(Uri.parse(videoUrl)))
             .setTitle("Animke · " + item.anime)
             .setDescription(item.label)
             .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_MOVIES, "animke/" + video.getName())
@@ -155,12 +180,14 @@ public final class DownloadStore {
             File sub = subtitleFile(c, item.id);
             //noinspection ResultOfMethodCallIgnored
             sub.delete();
-            DownloadManager.Request s = new DownloadManager.Request(Uri.parse(subtitleUrl))
+            DownloadManager.Request s = withSiteHeaders(c, new DownloadManager.Request(Uri.parse(subtitleUrl)))
                 .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_MOVIES, "animke/" + sub.getName())
                 .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
                 .setAllowedOverMetered(!wifi);
             item.subDm = dm.enqueue(s);
         }
+        item.videoUrl = videoUrl;
+        item.subUrl = subtitleUrl == null ? "" : subtitleUrl;
         item.added = System.currentTimeMillis();
         List<Item> items = all(c);
         items.add(0, item);
@@ -222,5 +249,32 @@ public final class DownloadStore {
         JSONArray arr = new JSONArray();
         for (Item i : all(c)) arr.put(i.id);
         return arr;
+    }
+
+    /** Başarısız indirmeyi aynı adreslerle yeniden başlatır (sıradaki yeri korunur). */
+    public static boolean retry(Context c, String id) {
+        Item old = find(c, id);
+        if (old == null || old.videoUrl == null || old.videoUrl.isEmpty()) return false;
+        remove(c, id);
+        Item fresh = new Item();
+        fresh.id = old.id;
+        fresh.anime = old.anime;
+        fresh.label = old.label;
+        fresh.quality = old.quality;
+        fresh.watchUrl = old.watchUrl;
+        fresh.size = old.size;
+        return enqueue(c, fresh, old.videoUrl, old.subUrl);
+    }
+
+    /** İnen ve inmiş dosyaların diskte kapladığı toplam alan. */
+    public static long usedBytes(Context c) {
+        long total = 0;
+        File[] files = dir(c).listFiles();
+        if (files != null) for (File f : files) total += f.length();
+        return total;
+    }
+
+    public static long freeBytes(Context c) {
+        return dir(c).getUsableSpace();
     }
 }

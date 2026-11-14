@@ -1,6 +1,6 @@
 {
   "name": "animke-android",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "private": true,
   "description": "Animke Android uygulaması (animke.com'u açan Capacitor kabuğu)",
   "scripts": {
