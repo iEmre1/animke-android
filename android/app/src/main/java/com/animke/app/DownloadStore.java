@@ -10,20 +10,32 @@ import android.os.Environment;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
- * İndirilen bölümler. Dosyalar uygulamanın kendi klasörüne (izin gerekmez, uygulama silinince
- * gider) Android'in indirme yöneticisiyle iner: uygulama kapalıyken de sürer, kopan bağlantıda
- * kaldığı yerden devam eder, ilerleme bildirimde görünür.
+ * İndirilen bölümler.
+ *
+ * Video, Android'in indirme yöneticisiyle uygulamanın kendi klasörüne iner (uygulama kapalıyken
+ * de sürer, kopan bağlantıda kaldığı yerden devam eder). İnince hemen şifrelenir (.vid) ve düz
+ * hâli silinir. Altyazı ise uygulamanın kendisi tarafından indirilip doğrudan şifreli yazılır
+ * (.sub); diske hiç düz hâliyle düşmez. Bkz. DownloadCrypto.
  */
 public final class DownloadStore {
 
     private static final String PREFS = "animke_downloads";
     private static final String KEY_ITEMS = "items";
     private static final String KEY_WIFI_ONLY = "wifi_only";
+    private static final Set<String> ENCRYPTING = Collections.synchronizedSet(new HashSet<>());
 
     /** Bir indirme kaydı. */
     public static final class Item {
@@ -33,7 +45,6 @@ public final class DownloadStore {
         public String quality;   // "720p"
         public String watchUrl;  // sitedeki izleme adresi (çevrimiçiyken)
         public long videoDm;     // indirme yöneticisi kimliği
-        public long subDm;       // altyazı (yoksa -1)
         public long size;        // bayt (tahmini)
         public long added;
         public long position;    // kaldığı yer (ms)
@@ -43,7 +54,7 @@ public final class DownloadStore {
         JSONObject toJson() throws Exception {
             JSONObject o = new JSONObject();
             o.put("id", id).put("anime", anime).put("label", label).put("quality", quality)
-                .put("watchUrl", watchUrl).put("videoDm", videoDm).put("subDm", subDm)
+                .put("watchUrl", watchUrl).put("videoDm", videoDm)
                 .put("size", size).put("added", added).put("position", position)
                 .put("videoUrl", videoUrl).put("subUrl", subUrl);
             return o;
@@ -57,7 +68,6 @@ public final class DownloadStore {
             i.quality = o.optString("quality");
             i.watchUrl = o.optString("watchUrl");
             i.videoDm = o.optLong("videoDm", -1);
-            i.subDm = o.optLong("subDm", -1);
             i.size = o.optLong("size");
             i.added = o.optLong("added");
             i.position = o.optLong("position");
@@ -109,11 +119,16 @@ public final class DownloadStore {
                 // atla
             }
         }
-        prefs(c).edit().putString(KEY_ITEMS, arr.toString()).apply();
+        prefs(c).edit().putString(KEY_ITEMS, arr.toString()).commit();
     }
 
     public static Item find(Context c, String id) {
         for (Item i : all(c)) if (i.id.equals(id)) return i;
+        return null;
+    }
+
+    public static Item findByDownload(Context c, long dmId) {
+        for (Item i : all(c)) if (i.videoDm == dmId) return i;
         return null;
     }
 
@@ -124,12 +139,23 @@ public final class DownloadStore {
         return d;
     }
 
-    public static File videoFile(Context c, String id) {
+    private static String safe(String id) {
+        return id.replaceAll("[^A-Za-z0-9_-]", "_");
+    }
+
+    /** İndirme yöneticisinin indirdiği düz video (şifrelenince silinir). */
+    static File plainVideoFile(Context c, String id) {
         return new File(dir(c), safe(id) + ".mp4");
     }
 
+    /** Şifreli video. */
+    public static File videoFile(Context c, String id) {
+        return new File(dir(c), safe(id) + ".vid");
+    }
+
+    /** Şifreli altyazı. */
     public static File subtitleFile(Context c, String id) {
-        return new File(dir(c), safe(id) + ".ass");
+        return new File(dir(c), safe(id) + ".sub");
     }
 
     /**
@@ -152,10 +178,6 @@ public final class DownloadStore {
         }
     }
 
-    private static String safe(String id) {
-        return id.replaceAll("[^A-Za-z0-9_-]", "_");
-    }
-
     /** Sırada / inmiş değilse indirmeyi başlatır. Dönüş: yeni eklendiyse true. */
     public static boolean enqueue(Context c, Item item, String videoUrl, String subtitleUrl) {
         if (find(c, item.id) != null) return false;
@@ -163,35 +185,27 @@ public final class DownloadStore {
         if (dm == null) return false;
         boolean wifi = wifiOnly(c);
 
-        File video = videoFile(c, item.id);
+        File plain = plainVideoFile(c, item.id);
         //noinspection ResultOfMethodCallIgnored
-        video.delete();
+        plain.delete();
         DownloadManager.Request req = withSiteHeaders(c, new DownloadManager.Request(Uri.parse(videoUrl)))
             .setTitle("Animke · " + item.anime)
             .setDescription(item.label)
-            .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_MOVIES, "animke/" + video.getName())
+            .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_MOVIES, "animke/" + plain.getName())
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
             .setAllowedOverMetered(!wifi)
             .setAllowedOverRoaming(false);
         item.videoDm = dm.enqueue(req);
 
-        item.subDm = -1;
-        if (subtitleUrl != null && !subtitleUrl.isEmpty()) {
-            File sub = subtitleFile(c, item.id);
-            //noinspection ResultOfMethodCallIgnored
-            sub.delete();
-            DownloadManager.Request s = withSiteHeaders(c, new DownloadManager.Request(Uri.parse(subtitleUrl)))
-                .setDestinationInExternalFilesDir(c, Environment.DIRECTORY_MOVIES, "animke/" + sub.getName())
-                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_HIDDEN)
-                .setAllowedOverMetered(!wifi);
-            item.subDm = dm.enqueue(s);
-        }
+        // Kayıt hemen yazılır: sonradan bir şey ters gitse de bölüm İndirilenler'de görünür.
         item.videoUrl = videoUrl;
         item.subUrl = subtitleUrl == null ? "" : subtitleUrl;
         item.added = System.currentTimeMillis();
         List<Item> items = all(c);
         items.add(0, item);
         save(c, items);
+
+        fetchSubtitle(c, item.id, item.subUrl);
         return true;
     }
 
@@ -212,30 +226,123 @@ public final class DownloadStore {
         return s;
     }
 
-    /** Video inmiş mi (dosya var ve indirme tamam)? */
+    /** İzlemeye hazır mı (şifreli video var)? */
     public static boolean ready(Context c, Item i) {
-        return status(c, i.videoDm).state == DownloadManager.STATUS_SUCCESSFUL && videoFile(c, i.id).exists();
+        return videoFile(c, i.id).exists();
+    }
+
+    /** Video indi ama henüz şifrelenmedi mi (ya da şifreleniyor mu)? */
+    public static boolean preparing(Context c, Item i) {
+        return !ready(c, i) && (ENCRYPTING.contains(i.id) || plainVideoFile(c, i.id).exists()
+            && status(c, i.videoDm).state == DownloadManager.STATUS_SUCCESSFUL);
+    }
+
+    /** İnen düz videoyu arka planda şifreler ve düz hâlini siler. */
+    public static void encryptIfNeeded(Context c, Item i, Runnable done) {
+        if (ready(c, i) || !plainVideoFile(c, i.id).exists()) return;
+        if (status(c, i.videoDm).state != DownloadManager.STATUS_SUCCESSFUL) return;
+        if (!ENCRYPTING.add(i.id)) return;
+        final Context app = c.getApplicationContext();
+        new Thread(() -> {
+            try {
+                DownloadCrypto.encryptFile(app, plainVideoFile(app, i.id), videoFile(app, i.id));
+                //noinspection ResultOfMethodCallIgnored
+                plainVideoFile(app, i.id).delete();
+            } catch (Exception ignored) {
+                // bir sonraki açılışta yeniden denenir
+            } finally {
+                ENCRYPTING.remove(i.id);
+                if (done != null) done.run();
+            }
+        }).start();
+    }
+
+    /** Altyazıyı arka planda indirip şifreli yazar. */
+    public static void fetchSubtitle(Context c, String id, String url) {
+        if (url == null || !url.startsWith("https://")) return;
+        final Context app = c.getApplicationContext();
+        new Thread(() -> fetchSubtitleSync(app, id, url)).start();
+    }
+
+    /**
+     * Altyazıyı bu iş parçacığında indirir ve doğrudan şifreli yazar; zaten varsa ya da
+     * indiyse true. Sunucu altyazıyı şifreli gönderir ({"k","iv","d"}), burada açılıp
+     * telefonun anahtarıyla yeniden şifrelenir.
+     */
+    public static boolean fetchSubtitleSync(Context c, String id, String url) {
+        File target = subtitleFile(c, id);
+        if (target.exists() && target.length() > 0) return true;
+        if (url == null || !url.startsWith("https://")) return false;
+        HttpURLConnection con = null;
+        File part = new File(target.getPath() + ".part");
+        try {
+            con = (HttpURLConnection) new URL(url).openConnection();
+            con.setConnectTimeout(15000);
+            con.setReadTimeout(30000);
+            con.setRequestProperty("Referer", "https://animke.com/");
+            con.setRequestProperty("Origin", "https://animke.com");
+            String ua = userAgent(c);
+            if (ua != null) con.setRequestProperty("User-Agent", ua);
+            if (con.getResponseCode() != 200) return false;
+            ByteArrayOutputStream body = new ByteArrayOutputStream();
+            try (InputStream in = con.getInputStream()) {
+                byte[] buf = new byte[16384];
+                int n;
+                while ((n = in.read(buf)) > 0) {
+                    if (body.size() + n > 20 * 1024 * 1024) return false; // altyazı bu kadar büyük olamaz
+                    body.write(buf, 0, n);
+                }
+            }
+            String type = con.getContentType();
+            byte[] text = type != null && type.contains("json")
+                ? DownloadCrypto.openServerPayload(body.toByteArray())
+                : body.toByteArray();
+            try (OutputStream out = DownloadCrypto.encryptingStream(c, target, part)) {
+                out.write(text);
+            }
+            return part.renameTo(target);
+        } catch (Exception ignored) {
+            // bağlantı yok: oynatıcı açılırken yeniden denenir
+            return false;
+        } finally {
+            if (con != null) con.disconnect();
+            //noinspection ResultOfMethodCallIgnored
+            part.delete();
+        }
     }
 
     public static void remove(Context c, String id) {
         DownloadManager dm = (DownloadManager) c.getSystemService(Context.DOWNLOAD_SERVICE);
-        List<Item> items = all(c);
         List<Item> keep = new ArrayList<>();
-        for (Item i : items) {
+        for (Item i : all(c)) {
             if (!i.id.equals(id)) {
                 keep.add(i);
                 continue;
             }
-            if (dm != null) {
-                if (i.videoDm >= 0) dm.remove(i.videoDm);
-                if (i.subDm >= 0) dm.remove(i.subDm);
-            }
+            if (dm != null && i.videoDm >= 0) dm.remove(i.videoDm);
+            //noinspection ResultOfMethodCallIgnored
+            plainVideoFile(c, i.id).delete();
             //noinspection ResultOfMethodCallIgnored
             videoFile(c, i.id).delete();
             //noinspection ResultOfMethodCallIgnored
             subtitleFile(c, i.id).delete();
         }
         save(c, keep);
+    }
+
+    /** Başarısız indirmeyi aynı adreslerle yeniden başlatır. */
+    public static boolean retry(Context c, String id) {
+        Item old = find(c, id);
+        if (old == null || old.videoUrl == null || old.videoUrl.isEmpty()) return false;
+        remove(c, id);
+        Item fresh = new Item();
+        fresh.id = old.id;
+        fresh.anime = old.anime;
+        fresh.label = old.label;
+        fresh.quality = old.quality;
+        fresh.watchUrl = old.watchUrl;
+        fresh.size = old.size;
+        return enqueue(c, fresh, old.videoUrl, old.subUrl);
     }
 
     public static void savePosition(Context c, String id, long positionMs) {
@@ -251,21 +358,6 @@ public final class DownloadStore {
         return arr;
     }
 
-    /** Başarısız indirmeyi aynı adreslerle yeniden başlatır (sıradaki yeri korunur). */
-    public static boolean retry(Context c, String id) {
-        Item old = find(c, id);
-        if (old == null || old.videoUrl == null || old.videoUrl.isEmpty()) return false;
-        remove(c, id);
-        Item fresh = new Item();
-        fresh.id = old.id;
-        fresh.anime = old.anime;
-        fresh.label = old.label;
-        fresh.quality = old.quality;
-        fresh.watchUrl = old.watchUrl;
-        fresh.size = old.size;
-        return enqueue(c, fresh, old.videoUrl, old.subUrl);
-    }
-
     /** İnen ve inmiş dosyaların diskte kapladığı toplam alan. */
     public static long usedBytes(Context c) {
         long total = 0;
@@ -276,5 +368,44 @@ public final class DownloadStore {
 
     public static long freeBytes(Context c) {
         return dir(c).getUsableSpace();
+    }
+
+    /**
+     * Kaydı olmayan dosyaları ve hâlâ inen kayıtsız indirmeleri temizler (ör. eski bir hatadan
+     * kalanlar). İndirilenler ekranı açılınca çağrılır.
+     */
+    public static void cleanupOrphans(Context c) {
+        List<Item> items = all(c);
+        Set<String> keep = new HashSet<>();
+        Set<Long> known = new HashSet<>();
+        for (Item i : items) {
+            keep.add(plainVideoFile(c, i.id).getName());
+            keep.add(videoFile(c, i.id).getName());
+            keep.add(subtitleFile(c, i.id).getName());
+            known.add(i.videoDm);
+        }
+        DownloadManager dm = (DownloadManager) c.getSystemService(Context.DOWNLOAD_SERVICE);
+        String dirPath = dir(c).getAbsolutePath();
+        if (dm != null) {
+            try (Cursor cur = dm.query(new DownloadManager.Query())) {
+                while (cur != null && cur.moveToNext()) {
+                    long id = cur.getLong(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_ID));
+                    String local = cur.getString(cur.getColumnIndexOrThrow(DownloadManager.COLUMN_LOCAL_URI));
+                    String path = local == null ? null : Uri.parse(local).getPath();
+                    if (path != null && path.startsWith(dirPath) && !known.contains(id)) dm.remove(id);
+                }
+            } catch (Exception ignored) {
+                // sorgu başarısız
+            }
+        }
+        File[] files = dir(c).listFiles();
+        if (files == null) return;
+        for (File f : files) {
+            boolean partial = f.getName().endsWith(".part");
+            if ((!keep.contains(f.getName()) || partial) && System.currentTimeMillis() - f.lastModified() > 60_000) {
+                //noinspection ResultOfMethodCallIgnored
+                f.delete();
+            }
+        }
     }
 }

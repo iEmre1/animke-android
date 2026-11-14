@@ -132,6 +132,7 @@ public class DownloadsActivity extends AppCompatActivity {
     @Override
     protected void onResume() {
         super.onResume();
+        DownloadStore.cleanupOrphans(this);
         lastSignature = "";
         handler.post(tick);
     }
@@ -150,7 +151,8 @@ public class DownloadsActivity extends AppCompatActivity {
         for (DownloadStore.Item i : items) {
             DownloadStore.Status st = DownloadStore.status(this, i.videoDm);
             statuses.add(st);
-            sig.append(i.id).append(':').append(st.state).append(':').append(st.done / (512 * 1024)).append(';');
+            sig.append(i.id).append(':').append(st.state).append(':').append(st.done / (512 * 1024))
+                .append(':').append(DownloadStore.ready(this, i)).append(';');
         }
         if (!force && sig.toString().equals(lastSignature)) return;
         lastSignature = sig.toString();
@@ -218,8 +220,12 @@ public class DownloadsActivity extends AppCompatActivity {
         r.setOrientation(LinearLayout.VERTICAL);
         r.setPadding(dp(14), dp(12), dp(14), dp(12));
 
-        boolean ready = st.state == DownloadManager.STATUS_SUCCESSFUL && DownloadStore.videoFile(this, item.id).exists();
-        boolean failed = st.state == DownloadManager.STATUS_FAILED || (st.state == DownloadManager.STATUS_SUCCESSFUL && !ready);
+        boolean ready = DownloadStore.ready(this, item);
+        boolean preparing = DownloadStore.preparing(this, item);
+        // İnmiş ama şifrelenmemiş (ör. uygulama kapalıyken yarıda kaldı): şimdi şifrele.
+        if (preparing) DownloadStore.encryptIfNeeded(this, item, () -> runOnUiThread(() -> render(true)));
+        boolean failed = !ready && !preparing
+            && (st.state == DownloadManager.STATUS_FAILED || st.state == DownloadManager.STATUS_SUCCESSFUL);
         long total = st.total > 0 ? st.total : item.size;
         int pct = total > 0 ? (int) Math.min(100, st.done * 100 / total) : 0;
 
@@ -231,6 +237,9 @@ public class DownloadsActivity extends AppCompatActivity {
         if (ready) {
             state = "İndirildi · " + mb(total) + (item.position > 5000 ? " · " + time(item.position) + "'de kaldın" : "");
             color = GREEN;
+        } else if (preparing) {
+            state = "Hazırlanıyor (güvenli saklama için şifreleniyor)…";
+            color = BRAND;
         } else if (failed) {
             state = "İndirilemedi" + reason(st.reason);
             color = RED;
@@ -249,7 +258,7 @@ public class DownloadsActivity extends AppCompatActivity {
         s.setPadding(0, dp(3), 0, 0);
         r.addView(s);
 
-        if (!ready && !failed && total > 0) {
+        if (!ready && !failed && !preparing && total > 0) {
             ProgressBar bar = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
             bar.setMax(100);
             bar.setProgress(pct);

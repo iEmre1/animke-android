@@ -14,6 +14,9 @@ import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.media3.common.C;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.MimeTypes;
+import androidx.media3.common.util.UnstableApi;
+import androidx.media3.datasource.DataSource;
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -24,6 +27,7 @@ import java.util.Collections;
  * İndirilen bölümü internetsiz oynatır (Media3). Altyazı (ASS) varsa gösterilir;
  * kaldığın yer kaydedilir ve tekrar açınca oradan devam eder.
  */
+@androidx.annotation.OptIn(markerClass = UnstableApi.class)
 public class OfflinePlayerActivity extends AppCompatActivity {
 
     private ExoPlayer player;
@@ -47,15 +51,38 @@ public class OfflinePlayerActivity extends AppCompatActivity {
         bars.hide(WindowInsetsCompat.Type.systemBars());
         bars.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
 
+        // Altyazı eksikse (ör. indirirken bağlantı yoktu) önce onu indirmeyi dene, sonra oynat.
+        final DownloadStore.Item it = item;
+        if (!DownloadStore.subtitleFile(this, id).exists() && it.subUrl != null && it.subUrl.startsWith("https://")) {
+            Toast.makeText(this, "Altyazı indiriliyor…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                DownloadStore.fetchSubtitleSync(this, id, it.subUrl);
+                runOnUiThread(() -> {
+                    if (!isFinishing()) startPlayer(it, video);
+                });
+            }).start();
+            return;
+        }
+        startPlayer(item, video);
+    }
+
+    private void startPlayer(DownloadStore.Item item, File video) {
         PlayerView view = new PlayerView(this);
         view.setBackgroundColor(Color.BLACK);
         view.setKeepScreenOn(true);
         setContentView(view);
 
-        player = new ExoPlayer.Builder(this).build();
+        // Video ve altyazı şifreli; okudukça bellekte çözülür (diske düz hâli yazılmaz).
+        DataSource.Factory decrypting = () -> new EncryptedFileDataSource(this);
+        player = new ExoPlayer.Builder(this)
+            .setMediaSourceFactory(new DefaultMediaSourceFactory(decrypting))
+            .build();
         view.setPlayer(player);
 
-        MediaItem.Builder media = new MediaItem.Builder().setUri(Uri.fromFile(video)).setMediaId(id);
+        MediaItem.Builder media = new MediaItem.Builder()
+            .setUri(Uri.fromFile(video))
+            .setMimeType(MimeTypes.VIDEO_MP4)
+            .setMediaId(id);
         File sub = DownloadStore.subtitleFile(this, id);
         if (sub.exists() && sub.length() > 0) {
             media.setSubtitleConfigurations(Collections.singletonList(

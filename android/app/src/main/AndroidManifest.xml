@@ -37,6 +37,15 @@
             </intent-filter>
         </activity>
 
+        <!-- İnen bölümü hemen şifreler (uygulama kapalıyken de). -->
+        <receiver
+            android:name=".DownloadDoneReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.DOWNLOAD_COMPLETE" />
+            </intent-filter>
+        </receiver>
+
         <!-- İndirilen bölümün internetsiz oynatıcısı. -->
         <activity
             android:name=".OfflinePlayerActivity"
