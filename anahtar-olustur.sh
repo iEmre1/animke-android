@@ -3,6 +3,8 @@
 # Git Bash'te çalıştır:  bash anahtar-olustur.sh
 # Şifre ekranda görünmez ve hiçbir yere yazdırılmaz.
 set -euo pipefail
+# Git Bash "/CN=..." gibi argümanları Windows yoluna çevirmesin.
+export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL="*"
 cd "$(dirname "$0")"
 
 REPO="iEmre1/animke-android"
@@ -17,10 +19,16 @@ command -v openssl >/dev/null || { echo "openssl bulunamadı (Git Bash ile çal�
 command -v gh >/dev/null || { echo "gh (GitHub CLI) bulunamadı."; exit 1; }
 
 mkdir -p "$DIR"
+# Yarıda kalmış önceki denemenin artıkları (anahtar henüz oluşmadığı için güvenle silinir).
+rm -f "$DIR/key.pem" "$DIR/sertifika.pem"
+
 echo "Şifreyi kendin belirlemek istemiyorsan hiçbir şey yazmadan Enter'a bas:"
 echo "güçlü bir şifre üretilip $DIR/sifre.txt dosyasına kaydedilir."
 read -rsp "Anahtar şifresi (en az 8 karakter): " ANIMKE_KEY_PASS; echo
-if [ -z "$ANIMKE_KEY_PASS" ]; then
+if [ -z "$ANIMKE_KEY_PASS" ] && [ -s "$DIR/sifre.txt" ]; then
+  ANIMKE_KEY_PASS="$(head -n1 "$DIR/sifre.txt" | tr -d '\r\n')"
+  echo "Daha önce üretilen $DIR/sifre.txt şifresi kullanılıyor."
+elif [ -z "$ANIMKE_KEY_PASS" ]; then
   ANIMKE_KEY_PASS="$(openssl rand -base64 24 | tr -d '/+=' | cut -c1-24)"
   printf '%s\n' "$ANIMKE_KEY_PASS" > "$DIR/sifre.txt"
   echo "Şifre üretildi ve $DIR/sifre.txt dosyasına kaydedildi."
@@ -33,7 +41,9 @@ export ANIMKE_KEY_PASS
 # 2048 bit RSA, ~27 yıl geçerli sertifika.
 openssl req -x509 -newkey rsa:2048 -nodes -days 10000 \
   -subj "/CN=Animke/O=Animke/C=TR" \
-  -keyout "$DIR/key.pem" -out "$DIR/sertifika.pem" 2>/dev/null
+  -keyout "$DIR/key.pem" -out "$DIR/sertifika.pem" 2>"$DIR/hata.log" \
+  || { echo "Anahtar oluşturulamadı:"; tail -3 "$DIR/hata.log"; exit 1; }
+rm -f "$DIR/hata.log"
 openssl pkcs12 -export -name animke \
   -inkey "$DIR/key.pem" -in "$DIR/sertifika.pem" \
   -out "$P12" -passout env:ANIMKE_KEY_PASS
