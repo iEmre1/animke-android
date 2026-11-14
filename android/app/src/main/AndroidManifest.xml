@@ -13,6 +13,8 @@
             android:label="@string/title_activity_main"
             android:theme="@style/AppTheme.NoActionBarLaunch"
             android:launchMode="singleTask"
+            android:supportsPictureInPicture="true"
+            android:resizeableActivity="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -32,4 +34,6 @@
     <!-- Permissions -->
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Wi-Fi / mobil veri ayrımı (mobil veride kalite düşürme). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 </manifest>
