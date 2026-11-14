@@ -42,6 +42,7 @@ import com.getcapacitor.BridgeWebChromeClient;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.messaging.FirebaseMessaging;
 
+import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.util.HashSet;
@@ -137,6 +138,63 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
+    // --- İndirme --------------------------------------------------------------------------------
+
+    private static boolean httpsUrl(String u) {
+        return u != null && u.startsWith("https://") && u.length() < 2000;
+    }
+
+    /** Siteden gelen bölümleri indirme yöneticisine verir (yalnızca https adresler). */
+    private void handleDownload(JSONArray items) {
+        if (items == null) return;
+        int added = 0, skipped = 0;
+        for (int i = 0; i < Math.min(items.length(), 60); i++) {
+            JSONObject o = items.optJSONObject(i);
+            if (o == null) continue;
+            String id = o.optString("id");
+            String video = o.optString("video");
+            String sub = o.optString("subtitle");
+            if (!id.matches("[A-Za-z0-9_-]{1,64}") || !httpsUrl(video)) continue;
+            DownloadStore.Item item = new DownloadStore.Item();
+            item.id = id;
+            item.anime = o.optString("anime", "Animke");
+            item.label = o.optString("label");
+            item.quality = o.optString("quality");
+            String watch = o.optString("watchUrl");
+            item.watchUrl = watch.startsWith("https://animke.com/") ? watch : "";
+            item.size = o.optLong("size");
+            if (DownloadStore.enqueue(this, item, video, httpsUrl(sub) ? sub : null)) added++;
+            else skipped++;
+        }
+        try {
+            JSONObject r = new JSONObject();
+            r.put("type", "download-result");
+            r.put("added", added);
+            r.put("skipped", skipped);
+            r.put("wifiWaiting", DownloadStore.wifiOnly(this) && isMetered());
+            if (siteReply != null) siteReply.postMessage(r.toString());
+        } catch (Exception ignored) {
+            // sayfa kapanmış olabilir
+        }
+        postDownloads();
+    }
+
+    /** Sitenin "indirildi" işaretleri için indirilen bölüm kimlikleri. */
+    private void postDownloads() {
+        runOnUiThread(() -> {
+            if (siteReply == null) return;
+            try {
+                JSONObject r = new JSONObject();
+                r.put("type", "downloads");
+                r.put("ids", DownloadStore.ids(this));
+                r.put("wifiOnly", DownloadStore.wifiOnly(this));
+                siteReply.postMessage(r.toString());
+            } catch (Exception ignored) {
+                // sayfa kapanmış olabilir
+            }
+        });
+    }
+
     // --- Bildirimler -------------------------------------------------------------------------
 
     private boolean firebaseReady() {
@@ -222,6 +280,15 @@ public class MainActivity extends BridgeActivity {
                     videoHeight = h;
                 }
                 updatePipParams();
+                break;
+            case "download":
+                handleDownload(msg.optJSONArray("items"));
+                break;
+            case "downloads":
+                postDownloads();
+                break;
+            case "open-downloads":
+                runOnUiThread(() -> startActivity(new Intent(this, DownloadsActivity.class)));
                 break;
             case "push-status":
                 sendPushState();

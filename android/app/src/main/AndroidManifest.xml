@@ -20,7 +20,29 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- İndirilenler (internetsiz de açılır). animke-app://downloads bağlantısı da buraya gelir. -->
+        <activity
+            android:name=".DownloadsActivity"
+            android:label="İndirilenler"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="animke-app" android:host="downloads" />
+            </intent-filter>
+        </activity>
+
+        <!-- İndirilen bölümün internetsiz oynatıcısı. -->
+        <activity
+            android:name=".OfflinePlayerActivity"
+            android:theme="@style/AppTheme.NoActionBar"
+            android:configChanges="orientation|keyboardHidden|screenSize|smallestScreenSize|screenLayout"
+            android:exported="false" />
 
         <!-- Yeni bölüm bildirimleri (Firebase). -->
         <service
