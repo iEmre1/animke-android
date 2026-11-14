@@ -1,0 +1,31 @@
+{
+  "appId": "com.animke.app",
+  "appName": "Animke",
+  "webDir": "www",
+  "server": {
+    "url": "https://animke.com",
+    "allowNavigation": [
+      "animke.com",
+      "www.animke.com"
+    ],
+    "errorPath": "offline.html",
+    "androidScheme": "https"
+  },
+  "android": {
+    "appendUserAgent": "AnimkeAndroid",
+    "backgroundColor": "#121212",
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 1200,
+      "launchAutoHide": true,
+      "backgroundColor": "#121212",
+      "showSpinner": false
+    },
+    "SystemBars": {
+      "insetsHandling": "native",
+      "style": "DARK"
+    }
+  }
+}

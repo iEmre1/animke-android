@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Animke</string>
+    <string name="title_activity_main">Animke</string>
+    <string name="package_name">com.animke.app</string>
+    <string name="custom_url_scheme">com.animke.app</string>
+</resources>

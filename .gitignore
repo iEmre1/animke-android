@@ -1,0 +1,6 @@
+node_modules/
+# İmzalama anahtarı asla depoya girmez.
+*.p12
+*.keystore
+*.jks
+anahtar/

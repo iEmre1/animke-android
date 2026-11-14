@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bağlantı yok · Animke</title>
+<style>
+  html,body{margin:0;height:100%;background:#121212;color:#e5e7eb;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  main{min-height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;padding:24px;text-align:center;box-sizing:border-box}
+  h1{margin:0;font-size:22px;color:#fff}
+  p{margin:0;max-width:300px;line-height:1.5;color:#9ca3af;font-size:15px}
+  button{margin-top:8px;border:0;border-radius:999px;background:#1e90e0;color:#fff;font-size:15px;font-weight:600;padding:12px 28px}
+  svg{opacity:.8}
+</style>
+</head>
+<body>
+<main>
+  <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M2 8.8a15 15 0 0 1 20 0"/><path d="M5 12.5a10 10 0 0 1 14 0"/><path d="M8.5 16a5 5 0 0 1 7 0"/><path d="M12 19.5h.01"/><path d="M3 3l18 18"/>
+  </svg>
+  <h1>İnternet bağlantısı yok</h1>
+  <p>Animke'ye ulaşılamadı. Bağlantını kontrol edip tekrar dene.</p>
+  <button type="button" onclick="location.replace('https://animke.com/')">Tekrar dene</button>
+</main>
+<script>
+  // Bağlantı gelince kendiliğinden yeniden dene.
+  addEventListener('online', function () { location.replace('https://animke.com/'); });
+</script>
+</body>
+</html>
