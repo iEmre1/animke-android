@@ -17,14 +17,13 @@ public class DownloadDoneReceiver extends BroadcastReceiver {
         DownloadStore.Item item = DownloadStore.findByDownload(context, id);
         if (item == null) return;
         final PendingResult pending = goAsync();
-        DownloadStore.encryptIfNeeded(context, item, pending::finish);
+        // "Bitti" yalnızca bir kez bildirilmeli (iki kez çağrılırsa uygulama çöker).
+        final java.util.concurrent.atomic.AtomicBoolean finished = new java.util.concurrent.atomic.AtomicBoolean(false);
+        final Runnable finish = () -> {
+            if (finished.compareAndSet(false, true)) pending.finish();
+        };
+        DownloadStore.encryptIfNeeded(context, item, finish);
         // Şifreleme başlamadıysa (ör. indirme başarısız) beklemeden bitir.
-        if (!DownloadStore.preparing(context, item)) {
-            try {
-                pending.finish();
-            } catch (IllegalStateException ignored) {
-                // zaten bitti
-            }
-        }
+        if (!DownloadStore.preparing(context, item)) finish.run();
     }
 }
