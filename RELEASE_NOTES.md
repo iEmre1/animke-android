@@ -1,4 +1,2 @@
-- İndirme düzeltildi: bölümler artık İndirilenler'de görünüyor, altyazı da iniyor
-- İndirilen bölümler telefonda şifreli saklanıyor
-- Yarıda kalan eski indirmeler temizleniyor
-- İndirilenler ekranında Hazırlanıyor durumu
+- İndirme sonrası nadir görülen bir çökme giderildi
+- Güvenlik iyileştirmesi
