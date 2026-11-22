@@ -122,6 +122,7 @@ public class MainActivity extends BridgeActivity {
         });
 
         setupSiteBridge();
+        setupPartyAgent();
         watchNetwork();
         MessagingService.ensureChannel(this);
         // Uygulama bildirime dokunularak açıldıysa o sayfaya git.
@@ -350,6 +351,30 @@ public class MainActivity extends BridgeActivity {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS);
         } else {
             sendPushState();
+        }
+    }
+
+    // --- Birlikte İzle aracısı ------------------------------------------------------------
+
+    /**
+     * Fansub oynatıcıları başka sitelerden (iframe) geldiği için animke.com onların videosunu
+     * okuyamaz. assets/party-agent.js her alt çerçeveye sayfa yüklenirken eklenir; videonun
+     * olaylarını animke.com'a bildirir ve animke.com'un komutlarını uygular (bkz. dosyadaki açıklama).
+     * Senkron komutuyla oynatma dokunma beklemesin diye otomatik oynatmaya da izin verilir.
+     */
+    private void setupPartyAgent() {
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) return;
+        try (java.io.InputStream in = getAssets().open("party-agent.js")) {
+            java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[4096];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            Set<String> all = new HashSet<>();
+            all.add("*");
+            WebViewCompat.addDocumentStartJavaScript(webView, out.toString("UTF-8"), all);
+        } catch (Exception ignored) {
+            // aracı yüklenemezse Birlikte İzle eskisi gibi (geri sayımla) çalışır
         }
     }
 
