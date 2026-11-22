@@ -1,2 +1,3 @@
-- İndirme sonrası nadir görülen bir çökme giderildi
-- Güvenlik iyileştirmesi
+- Birlikte İzle: fansub oynatıcılarında oynat, durdur ve ileri sarma artık herkese yansıyor
+- Odaya katılınca video dokunmadan senkron başlıyor
+- Küçük iyileştirmeler
