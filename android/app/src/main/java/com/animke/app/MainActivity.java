@@ -135,11 +135,17 @@ public class MainActivity extends BridgeActivity {
         openFromIntent(intent);
     }
 
-    /** Bildirimdeki adres (yalnızca animke.com) uygulamada açılır. */
+    /** Bildirimdeki ya da dokunulan bağlantıdaki adres (yalnızca animke.com) uygulamada açılır. */
     private void openFromIntent(Intent intent) {
         if (intent == null || webView == null) return;
+        String url = null;
+        // Tarayıcıda/mesajda dokunulan https://animke.com/... bağlantısı.
+        if (Intent.ACTION_VIEW.equals(intent.getAction()) && intent.getData() != null) {
+            url = intent.getData().toString();
+            intent.setData(null);
+        }
         // Uygulama açıkken gösterilen bildirim EXTRA_URL, kapalıyken Android'in gösterdiği "url" taşır.
-        String url = intent.getStringExtra(MessagingService.EXTRA_URL);
+        if (url == null) url = intent.getStringExtra(MessagingService.EXTRA_URL);
         if (url == null) url = intent.getStringExtra("url");
         if (url == null) return;
         intent.removeExtra(MessagingService.EXTRA_URL);

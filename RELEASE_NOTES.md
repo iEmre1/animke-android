@@ -1,3 +1,3 @@
-- Birlikte İzle: fansub oynatıcılarında oynat, durdur ve ileri sarma artık herkese yansıyor
-- Odaya katılınca video dokunmadan senkron başlıyor
+- animke.com bağlantılarına dokununca artık doğrudan uygulamada açılıyor
+- Mesajla gelen oda davetleri ve bölüm bağlantıları uygulamada açılıyor
 - Küçük iyileştirmeler
