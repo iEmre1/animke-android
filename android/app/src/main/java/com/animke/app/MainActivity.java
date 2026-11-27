@@ -69,6 +69,8 @@ public class MainActivity extends BridgeActivity {
     private static final String[] SITE_ORIGINS = { "https://animke.com", "https://www.animke.com" };
 
     private View fullscreenView;
+    /** Site, videoyu sayfayı kaplayacak şekilde büyüttü (dokunuşsuz tam ekran; ör. otomatik sonraki bölüm). */
+    private boolean webImmersive = false;
     private WebChromeClient.CustomViewCallback fullscreenCallback;
     private WebView webView;
 
@@ -113,6 +115,10 @@ public class MainActivity extends BridgeActivity {
             public void handleOnBackPressed() {
                 if (fullscreenView != null) {
                     exitFullscreen();
+                } else if (webImmersive) {
+                    // Önce büyütülmüş videodan çık (sayfa geri gitmesin).
+                    postToSite("exit-fullscreen");
+                    setWebImmersive(false);
                 } else if (webView.canGoBack()) {
                     webView.goBack();
                 } else {
@@ -440,6 +446,10 @@ public class MainActivity extends BridgeActivity {
             case "volume":
                 setVolume((float) msg.optDouble("value", 0.5));
                 break;
+            case "immersive":
+                boolean on = msg.optBoolean("on");
+                runOnUiThread(() -> setWebImmersive(on));
+                break;
             default:
                 break;
         }
@@ -630,6 +640,41 @@ public class MainActivity extends BridgeActivity {
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         // Telefonun iki yatay yönünden hangisi tutuluyorsa ona döner.
         setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+    }
+
+    /**
+     * Sitenin "web tam ekranı" için: sistem çubukları gizlenir, ekran yatay döner ve açık kalır.
+     * Tarayıcı tam ekranı yalnızca dokunuşla açtığı için otomatik sonraki bölümde site bunu ister.
+     */
+    private void setWebImmersive(boolean on) {
+        if (webImmersive == on) return;
+        webImmersive = on;
+        // Gerçek (dokunuşla açılmış) tam ekran zaten çubukları ve yönü yönetiyor.
+        if (fullscreenView != null) return;
+        ViewGroup decor = (ViewGroup) getWindow().getDecorView();
+        WindowInsetsControllerCompat bars = WindowCompat.getInsetsController(getWindow(), decor);
+        if (on) {
+            bars.hide(WindowInsetsCompat.Type.systemBars());
+            bars.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+            getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE);
+        } else {
+            bars.show(WindowInsetsCompat.Type.systemBars());
+            getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+            setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            setBrightness(-1);
+        }
+    }
+
+    private void postToSite(String type) {
+        if (siteReply == null) return;
+        try {
+            JSONObject m = new JSONObject();
+            m.put("type", type);
+            siteReply.postMessage(m.toString());
+        } catch (Exception ignored) {
+            // sayfa kapanmış olabilir
+        }
     }
 
     private void exitFullscreen() {

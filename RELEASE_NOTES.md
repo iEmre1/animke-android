@@ -1,3 +1,3 @@
-- animke.com bağlantılarına dokununca artık doğrudan uygulamada açılıyor
-- Mesajla gelen oda davetleri ve bölüm bağlantıları uygulamada açılıyor
+- Otomatik sonraki bölüm, Otomatik Tam Ekran açıksa doğrudan yatay tam ekranda başlıyor
+- Videoda kaydırma artık bölümü sarmıyor; uygulamadan geri jestiyle çıkmak kolaylaştı
 - Küçük iyileştirmeler
